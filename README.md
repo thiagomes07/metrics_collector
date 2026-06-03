@@ -1,3 +1,23 @@
+# Experimento de métricas CI/CD
+
+Este repositório adapta o projeto real
+[`python-humanize/humanize`](https://github.com/python-humanize/humanize),
+clonado no commit `d333afdc5e05941c67c552c9f153eec4d48e64b4`, para medir
+execuções de pipeline no GitHub Actions.
+
+Artefatos principais:
+
+- Workflow do experimento: [`.github/workflows/pipeline-metrics.yml`](.github/workflows/pipeline-metrics.yml)
+- Coleta via API REST do GitHub: [`scripts/collect_metrics.py`](scripts/collect_metrics.py)
+- Geração de gráficos: [`scripts/generate_charts.py`](scripts/generate_charts.py)
+- Relatório técnico: [`reports/pipeline-analysis.md`](reports/pipeline-analysis.md)
+
+Os CSVs em `data/sample_*.csv` são fixtures sintéticas para validar os scripts.
+Para a entrega final, as métricas reais devem ser coletadas depois de executar o
+workflow no GitHub Actions com as variações documentadas no relatório.
+
+---
+
 # humanize
 
 [![PyPI version](https://img.shields.io/pypi/v/humanize.svg?logo=pypi&logoColor=FFE873)](https://pypi.org/project/humanize/)
