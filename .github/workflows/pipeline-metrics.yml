@@ -39,11 +39,11 @@ on:
       cache_mode:
         description: Control dependency cache behavior for the run.
         required: true
-        default: on
+        default: "on"
         type: choice
         options:
-          - on
-          - off
+          - "on"
+          - "off"
           - bust
       extra_test_cases:
         description: Number of generated tests that exercise humanize functions.
