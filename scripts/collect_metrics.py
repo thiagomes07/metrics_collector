@@ -11,12 +11,11 @@ import sys
 import time
 import zipfile
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from urllib import error, parse, request
 from xml.etree import ElementTree as ET
-
 
 MAIN_FIELDS = [
     "run_id",
@@ -96,6 +95,30 @@ def infer_python_version(job_name: str) -> str:
     return match.group(0) if match else ""
 
 
+class StripAuthOnCrossHostRedirect(request.HTTPRedirectHandler):
+    def redirect_request(
+        self,
+        req: request.Request,
+        fp: Any,
+        code: int,
+        msg: str,
+        headers: Any,
+        newurl: str,
+    ) -> request.Request | None:
+        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if redirected is None:
+            return None
+        old_host = parse.urlparse(req.full_url).netloc
+        new_host = parse.urlparse(newurl).netloc
+        if old_host != new_host:
+            for header in ("accept", "authorization", "x-github-api-version"):
+                for collection in (redirected.headers, redirected.unredirected_hdrs):
+                    for key in list(collection):
+                        if key.lower() == header:
+                            del collection[key]
+        return redirected
+
+
 def as_int(value: str | None) -> int:
     if value in (None, ""):
         return 0
@@ -159,7 +182,8 @@ class GitHubClient:
         for attempt in range(6):
             req = request.Request(url, headers=headers)
             try:
-                with request.urlopen(req, timeout=45) as response:
+                opener = request.build_opener(StripAuthOnCrossHostRedirect())
+                with opener.open(req, timeout=45) as response:
                     body = response.read()
                     self._respect_rate_limit(response.headers)
                     return body, response.headers
