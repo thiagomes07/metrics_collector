@@ -157,3 +157,8 @@ cython_debug/
 
 # hatch-vcs
 src/*/_version.py
+
+# CI metrics experiment
+.artifacts/
+data/downloaded-artifacts/
+tests/test_ci_variations.py

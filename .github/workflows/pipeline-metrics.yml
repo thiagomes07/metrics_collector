@@ -1,0 +1,317 @@
+name: CI Metrics Experiment
+
+run-name: CI metrics / ${{ inputs.experiment_variant || github.event.head_commit.message || github.ref_name }}
+
+on:
+  push:
+    branches:
+      - main
+      - ci-metrics/**
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      experiment_variant:
+        description: Controlled experiment label recorded in the run title.
+        required: true
+        default: baseline
+        type: choice
+        options:
+          - baseline
+          - repeat-baseline
+          - cache-disabled
+          - cache-restored
+          - extra-tests-40
+          - extra-tests-120
+          - slow-test-2s
+          - slow-test-5s
+          - forced-failure
+          - sequential-tests
+          - parallel-tests
+          - cache-bust
+      execution_mode:
+        description: Run test jobs as the normal matrix or as one sequential job.
+        required: true
+        default: parallel
+        type: choice
+        options:
+          - parallel
+          - sequential
+      cache_mode:
+        description: Control dependency cache behavior for the run.
+        required: true
+        default: on
+        type: choice
+        options:
+          - on
+          - off
+          - bust
+      extra_test_cases:
+        description: Number of generated tests that exercise humanize functions.
+        required: true
+        default: "0"
+        type: string
+      slow_test_seconds:
+        description: Artificial delay inserted in one generated test.
+        required: true
+        default: "0"
+        type: string
+      fail_mode:
+        description: Force one generated assertion to fail.
+        required: true
+        default: none
+        type: choice
+        options:
+          - none
+          - generated-assertion
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  quality:
+    name: quality gate
+    runs-on: ubuntu-latest
+    outputs:
+      pip-cache-hit: ${{ steps.cache.outputs.cache-hit || 'skipped' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache pip packages
+        id: cache
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.cache_mode != 'off' }}
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-3.12-quality-${{ inputs.cache_mode || 'push' }}-${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            pip-${{ runner.os }}-3.12-quality-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[tests]" ruff
+
+      - name: Lint source and tests
+        run: python -m ruff check src tests
+
+      - name: Record quality summary
+        if: ${{ always() }}
+        run: |
+          mkdir -p .artifacts/quality
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          Path(".artifacts/quality/quality-summary.json").write_text(
+              json.dumps(
+                  {
+                      "job": "quality gate",
+                      "run_id": os.environ["GITHUB_RUN_ID"],
+                      "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+                      "cache_hit": "${{ steps.cache.outputs.cache-hit || 'skipped' }}",
+                  },
+                  indent=2,
+              )
+          )
+          PY
+
+      - name: Upload quality artifact
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-summary
+          path: .artifacts/quality/
+
+  tests_parallel:
+    name: tests (${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    needs: quality
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.execution_mode == 'parallel' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Cache pip packages
+        id: cache
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.cache_mode != 'off' }}
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ matrix.python-version }}-tests-${{ inputs.cache_mode || 'push' }}-${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            pip-${{ runner.os }}-${{ matrix.python-version }}-tests-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[tests]"
+
+      - name: Generate controlled test variation
+        run: |
+          python scripts/ci_variation_tests.py \
+            --out tests/test_ci_variations.py \
+            --extra-cases "${{ inputs.extra_test_cases || '0' }}" \
+            --slow-seconds "${{ inputs.slow_test_seconds || '0' }}" \
+            --fail-mode "${{ inputs.fail_mode || 'none' }}"
+
+      - name: Run pytest
+        shell: bash
+        run: |
+          mkdir -p .artifacts/pytest
+          set +e
+          python -m pytest \
+            tests/test_number.py \
+            tests/test_filesize.py \
+            tests/test_lists.py \
+            tests/test_time.py \
+            tests/test_i18n.py \
+            tests/test_ci_variations.py \
+            --junitxml=.artifacts/pytest/junit.xml \
+            --durations=15 | tee .artifacts/pytest/pytest.log
+          status=${PIPESTATUS[0]}
+          python scripts/summarize_junit.py \
+            .artifacts/pytest/junit.xml \
+            --out .artifacts/pytest/summary.json \
+            --variant "${{ inputs.experiment_variant || 'push' }}" \
+            --python-version "${{ matrix.python-version }}" \
+            --cache-hit "${{ steps.cache.outputs.cache-hit || 'skipped' }}"
+          exit "$status"
+
+      - name: Upload pytest artifact
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-results-${{ matrix.python-version }}
+          path: .artifacts/pytest/
+
+  tests_sequential:
+    name: tests sequential (3.12)
+    runs-on: ubuntu-latest
+    needs: quality
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.execution_mode == 'sequential' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache pip packages
+        id: cache
+        if: ${{ inputs.cache_mode != 'off' }}
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-3.12-sequential-${{ inputs.cache_mode }}-${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            pip-${{ runner.os }}-3.12-sequential-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[tests]"
+
+      - name: Generate controlled test variation
+        run: |
+          python scripts/ci_variation_tests.py \
+            --out tests/test_ci_variations.py \
+            --extra-cases "${{ inputs.extra_test_cases }}" \
+            --slow-seconds "${{ inputs.slow_test_seconds }}" \
+            --fail-mode "${{ inputs.fail_mode }}"
+
+      - name: Run pytest sequentially
+        shell: bash
+        run: |
+          mkdir -p .artifacts/pytest
+          set +e
+          python -m pytest \
+            tests/test_number.py \
+            tests/test_filesize.py \
+            tests/test_lists.py \
+            tests/test_time.py \
+            tests/test_i18n.py \
+            tests/test_ci_variations.py \
+            --junitxml=.artifacts/pytest/junit.xml \
+            --durations=15 | tee .artifacts/pytest/pytest.log
+          status=${PIPESTATUS[0]}
+          python scripts/summarize_junit.py \
+            .artifacts/pytest/junit.xml \
+            --out .artifacts/pytest/summary.json \
+            --variant "${{ inputs.experiment_variant }}" \
+            --python-version "3.12" \
+            --cache-hit "${{ steps.cache.outputs.cache-hit || 'skipped' }}"
+          exit "$status"
+
+      - name: Upload pytest artifact
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-results-sequential-3.12
+          path: .artifacts/pytest/
+
+  metrics_snapshot:
+    name: metrics snapshot
+    runs-on: ubuntu-latest
+    needs:
+      - quality
+      - tests_parallel
+      - tests_sequential
+    if: ${{ always() }}
+    steps:
+      - name: Write run context
+        env:
+          NEEDS_JSON: ${{ toJson(needs) }}
+          VARIANT: ${{ inputs.experiment_variant || 'push' }}
+          EXECUTION_MODE: ${{ inputs.execution_mode || 'parallel' }}
+          CACHE_MODE: ${{ inputs.cache_mode || 'on' }}
+        run: |
+          mkdir -p .artifacts/run
+          python - <<'PY'
+          import json
+          import os
+          from datetime import UTC, datetime
+          from pathlib import Path
+
+          payload = {
+              "run_id": os.environ["GITHUB_RUN_ID"],
+              "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+              "workflow": os.environ["GITHUB_WORKFLOW"],
+              "sha": os.environ["GITHUB_SHA"],
+              "ref": os.environ["GITHUB_REF_NAME"],
+              "variant": os.environ["VARIANT"],
+              "execution_mode": os.environ["EXECUTION_MODE"],
+              "cache_mode": os.environ["CACHE_MODE"],
+              "recorded_at": datetime.now(UTC).isoformat(),
+              "needs": json.loads(os.environ["NEEDS_JSON"]),
+          }
+          Path(".artifacts/run/run-context.json").write_text(json.dumps(payload, indent=2))
+          PY
+
+      - name: Upload run context
+        uses: actions/upload-artifact@v4
+        with:
+          name: run-context
+          path: .artifacts/run/
