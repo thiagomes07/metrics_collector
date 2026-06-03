@@ -12,9 +12,10 @@ Artefatos principais:
 - Geração de gráficos: [`scripts/generate_charts.py`](scripts/generate_charts.py)
 - Relatório técnico: [`reports/pipeline-analysis.md`](reports/pipeline-analysis.md)
 
-Os CSVs em `data/sample_*.csv` são fixtures sintéticas para validar os scripts.
-Para a entrega final, as métricas reais devem ser coletadas depois de executar o
-workflow no GitHub Actions com as variações documentadas no relatório.
+Os CSVs `data/pipeline_metrics.csv` e `data/step_metrics.csv` foram coletados
+de execuções reais do GitHub Actions. Os arquivos `data/sample_*.csv` continuam
+no repositório apenas como fixtures sintéticas para validar os scripts sem
+depender da API.
 
 ---
 

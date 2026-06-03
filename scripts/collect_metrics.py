@@ -66,7 +66,7 @@ def elapsed_seconds(start: str | None, end: str | None) -> float:
     end_dt = parse_instant(end)
     if not start_dt or not end_dt:
         return 0.0
-    return round((end_dt - start_dt).total_seconds(), 3)
+    return round(max(0.0, (end_dt - start_dt).total_seconds()), 3)
 
 
 def first_line(value: str | None) -> str:
