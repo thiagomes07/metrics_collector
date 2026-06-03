@@ -17,6 +17,23 @@ def outlier_mask(series: pd.Series) -> pd.Series:
     return series > q3 + 1.5 * iqr
 
 
+def run_annotations(runs: pd.DataFrame) -> dict[int, str]:
+    annotations: dict[int, str] = {}
+    for _, row in runs[outlier_mask(runs["workflow_duration"])].iterrows():
+        annotations[int(row["run_id"])] = "outlier IQR"
+
+    max_duration = runs.loc[runs["workflow_duration"].idxmax()]
+    annotations.setdefault(int(max_duration["run_id"]), "maior duração")
+
+    failures = runs[runs["status"] != "success"]
+    for _, row in failures.iterrows():
+        annotations.setdefault(int(row["run_id"]), "falha controlada")
+
+    max_tests = runs.loc[runs["test_count"].idxmax()]
+    annotations.setdefault(int(max_tests["run_id"]), "maior suíte")
+    return annotations
+
+
 def run_frame(df: pd.DataFrame) -> pd.DataFrame:
     numeric = ["workflow_duration", "job_duration", "test_count", "test_failures", "test_time"]
     for column in numeric:
@@ -49,9 +66,14 @@ def pipeline_duration_chart(runs: pd.DataFrame, out: Path) -> None:
     ax.set_xticks(runs["label"])
     ax.set_xticklabels(runs["variant"], rotation=35, ha="right")
     ax.grid(axis="y", alpha=0.25)
-    for _, row in runs[outlier_mask(runs["workflow_duration"])].iterrows():
+    ax.set_ylim(0, runs["workflow_duration"].max() * 1.18)
+    annotations = run_annotations(runs)
+    for _, row in runs.iterrows():
+        note = annotations.get(int(row["run_id"]))
+        if not note:
+            continue
         ax.annotate(
-            "outlier",
+            note,
             (row["label"], row["workflow_duration"]),
             xytext=(0, 8),
             textcoords="offset points",
@@ -65,7 +87,8 @@ def pipeline_duration_chart(runs: pd.DataFrame, out: Path) -> None:
 
 def job_duration_chart(df: pd.DataFrame, out: Path) -> None:
     jobs = (
-        df.groupby("job_name", as_index=False)["job_duration"]
+        df[df["job_duration"] > 0]
+        .groupby("job_name", as_index=False)["job_duration"]
         .mean()
         .sort_values("job_duration")
     )
@@ -75,6 +98,16 @@ def job_duration_chart(df: pd.DataFrame, out: Path) -> None:
     ax.set_xlabel("Duração média (s)")
     ax.set_ylabel("Job")
     ax.grid(axis="x", alpha=0.25)
+    if not jobs.empty:
+        top = jobs.iloc[-1]
+        ax.annotate(
+            "maior média",
+            (top["job_duration"], top["job_name"]),
+            xytext=(8, 0),
+            textcoords="offset points",
+            va="center",
+            fontsize=9,
+        )
     fig.tight_layout()
     fig.savefig(out, dpi=160)
     plt.close(fig)
@@ -103,9 +136,23 @@ def tests_vs_duration_chart(runs: pd.DataFrame, out: Path) -> None:
     ax.set_xlabel("Testes executados")
     ax.set_ylabel("Duração do workflow (s)")
     ax.grid(alpha=0.25)
-    for _, row in runs[outlier_mask(runs["workflow_duration"])].iterrows():
+    x_span = runs["test_count"].max() - runs["test_count"].min()
+    y_span = runs["workflow_duration"].max() - runs["workflow_duration"].min()
+    ax.set_xlim(
+        runs["test_count"].min() - max(x_span * 0.08, 20),
+        runs["test_count"].max() + max(x_span * 0.12, 20),
+    )
+    ax.set_ylim(
+        runs["workflow_duration"].min() - max(y_span * 0.12, 1),
+        runs["workflow_duration"].max() + max(y_span * 0.22, 1),
+    )
+    annotations = run_annotations(runs)
+    for _, row in runs.iterrows():
+        note = annotations.get(int(row["run_id"]))
+        if not note:
+            continue
         ax.annotate(
-            row["variant"],
+            f"{row['variant']}\n{note}",
             (row["test_count"], row["workflow_duration"]),
             xytext=(8, 5),
             textcoords="offset points",
@@ -131,6 +178,16 @@ def step_duration_chart(steps_path: Path, out: Path) -> None:
     ax.set_xlabel("Duração média (s)")
     ax.set_ylabel("Etapa")
     ax.grid(axis="x", alpha=0.25)
+    if not slow_steps.empty:
+        top = slow_steps.iloc[-1]
+        ax.annotate(
+            "maior média",
+            (top["step_duration"], top["step_name"]),
+            xytext=(8, 0),
+            textcoords="offset points",
+            va="center",
+            fontsize=9,
+        )
     fig.tight_layout()
     fig.savefig(out, dpi=160)
     plt.close(fig)

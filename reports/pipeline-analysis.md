@@ -86,6 +86,8 @@ Campos extras coletados: `run_attempt`, `event`, `branch`, `variant`, `python_ve
 
 Os gráficos abaixo foram gerados a partir de `data/pipeline_metrics.csv` e `data/step_metrics.csv`, não dos CSVs sintéticos.
 
+O script marca outliers por IQR quando eles existem. Neste conjunto real não houve outlier estatístico acima de `Q3 + 1,5*IQR`; por isso os gráficos anotam os pontos críticos que substituem a inspeção visual manual: maior duração, falha controlada, maior suíte e maiores médias de job/step.
+
 ![Tempo total do pipeline por execução](../charts/pipeline_duration_by_run.png)
 
 ![Tempo médio por job](../charts/job_duration_by_job.png)
@@ -164,6 +166,7 @@ Resultado observado: nenhuma das três hipóteses apareceu limpa. Cache ficou de
 
 - Repositório: [thiagomes07/metrics_collector](https://github.com/thiagomes07/metrics_collector)
 - Workflow YAML: [pipeline-metrics.yml](https://github.com/thiagomes07/metrics_collector/blob/main/.github/workflows/pipeline-metrics.yml)
+- Workflow ID no GitHub Actions: `288613964`
 - Commit usado nos 12 runs: [`69313d54ab2201cfb8a90284fd54c4f3605d4408`](https://github.com/thiagomes07/metrics_collector/commit/69313d54ab2201cfb8a90284fd54c4f3605d4408)
 - Runs reais: `26891995918`, `26892075323`, `26892077297`, `26892079652`, `26892082085`, `26892084217`, `26892086661`, `26892088940`, `26892091428`, `26892093997`, `26892096157`, `26892098818`.
 - CSV real: `data/pipeline_metrics.csv`
