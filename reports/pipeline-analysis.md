@@ -3,9 +3,13 @@
 <a id="escopo-e-origem"></a>
 ## Escopo e origem
 
-Este repositório adapta o projeto real [python-humanize/humanize](https://github.com/python-humanize/humanize), clonado no commit `d333afdc5e05941c67c552c9f153eec4d48e64b4`. A escolha foi deliberada: a biblioteca tem testes sobre formatação de número, tamanho, listas, datas e internacionalização, então o pipeline mede trabalho real de Python em vez de um exercício vazio.
+Este repositório adapta o projeto real [python-humanize/humanize](https://github.com/python-humanize/humanize), clonado no commit `d333afdc5e05941c67c552c9f153eec4d48e64b4`. A escolha foi deliberada: a biblioteca já tinha testes de número, tamanho, listas, datas e internacionalização, então o pipeline mede uma suíte real de Python em vez de um projeto montado só para a atividade.
 
-Os artefatos locais incluem workflow, coletor, CSV de exemplo, gerador de gráficos e este relatório. O arquivo `data/sample_pipeline_metrics.csv` é sintético e serve para validar a estrutura. Eu não marquei IDs, links ou prints sintéticos como evidência real. Para a entrega acadêmica final, rode o workflow 12 vezes no seu repositório GitHub e gere `data/pipeline_metrics.csv` com `scripts/collect_metrics.py`.
+Repositório do experimento: [thiagomes07/metrics_collector](https://github.com/thiagomes07/metrics_collector)
+
+Workflow analisado: [`.github/workflows/pipeline-metrics.yml`](https://github.com/thiagomes07/metrics_collector/blob/main/.github/workflows/pipeline-metrics.yml)
+
+As 12 execuções foram feitas em `workflow_dispatch` no dia 3 de junho de 2026, sobre o commit real `69313d54ab2201cfb8a90284fd54c4f3605d4408`. Depois dos runs, corrigi o coletor para lidar melhor com redirects de artifacts e jobs skipped; essa correção não altera os runs medidos, só a extração dos dados.
 
 <a id="estrutura"></a>
 ## Estrutura de diretórios
@@ -17,6 +21,8 @@ scripts/summarize_junit.py
 scripts/collect_metrics.py
 scripts/generate_charts.py
 requirements-experiment.txt
+data/pipeline_metrics.csv
+data/step_metrics.csv
 data/sample_pipeline_metrics.csv
 data/sample_step_metrics.csv
 charts/
@@ -28,57 +34,44 @@ reports/pipeline-analysis.md
 
 O workflow `CI Metrics Experiment` cobre instalação de dependências, cache de `pip`, lint com `ruff`, testes com `pytest`, artifacts de resultado e um job final de snapshot. Ele usa `workflow_dispatch`, `matrix`, `needs`, `actions/cache` e `actions/upload-artifact`.
 
-Arquivo YAML: `.github/workflows/pipeline-metrics.yml`
-
 Jobs:
 
-- `quality gate`: instala dependências, roda `ruff check src tests`, salva `quality-summary.json`.
+- `quality gate`: instala dependências, roda `ruff check src tests` e publica `quality-summary.json`.
 - `tests (3.11)` e `tests (3.12)`: rodam em matrix, geram variações controladas e publicam JUnit, log do pytest e `summary.json`.
 - `tests sequential (3.12)`: usado quando `execution_mode=sequential`.
 - `metrics snapshot`: consolida contexto do run e status dos jobs via `needs`.
 
 <a id="variacoes"></a>
-## Variações planejadas
-
-As 12 execuções devem ser disparadas por `workflow_dispatch`, cada uma com uma hipótese operacional clara:
+## Variações executadas
 
 | Execução | `experiment_variant` | Parâmetros principais | Justificativa |
 |---:|---|---|---|
 | 1 | `baseline` | cache on, parallel, 0 extras | Medir referência limpa. |
-| 2 | `repeat-baseline` | cache on, parallel, 0 extras | Separar ruído de runner de mudança real. |
-| 3 | `cache-disabled` | cache off | Medir custo de instalação sem cache. |
-| 4 | `cache-restored` | cache on | Confirmar recuperação depois do cache frio. |
-| 5 | `extra-tests-40` | 40 testes gerados | Observar crescimento moderado da suíte. |
-| 6 | `extra-tests-120` | 120 testes gerados | Forçar pressão maior sem alterar a aplicação. |
+| 2 | `repeat-baseline` | cache on, parallel, 0 extras | Medir ruído de runner sem mudar código. |
+| 3 | `cache-disabled` | cache off | Testar custo de instalação sem cache. |
+| 4 | `cache-restored` | cache on | Confirmar comportamento com cache restaurado. |
+| 5 | `extra-tests-40` | 40 testes gerados | Aumentar a suíte sem alterar a biblioteca. |
+| 6 | `extra-tests-120` | 120 testes gerados | Forçar crescimento maior de carga de teste. |
 | 7 | `slow-test-2s` | `slow_test_seconds=2` | Simular I/O lento isolado. |
-| 8 | `slow-test-5s` | `slow_test_seconds=5` | Medir amplificação do teste lento na matrix. |
-| 9 | `forced-failure` | `fail_mode=generated-assertion` | Coletar status e artifacts em pipeline vermelho. |
-| 10 | `sequential-tests` | `execution_mode=sequential` | Comparar contra execução paralela. |
-| 11 | `parallel-tests` | `execution_mode=parallel` | Repetir paralelismo após sequential para reduzir efeito temporal. |
-| 12 | `cache-bust` | `cache_mode=bust` | Medir custo de chave nova sem desligar a lógica de cache. |
-
-Com GitHub CLI, o formato dos disparos é:
-
-```bash
-gh workflow run pipeline-metrics.yml -f experiment_variant=baseline -f execution_mode=parallel -f cache_mode=on -f extra_test_cases=0 -f slow_test_seconds=0 -f fail_mode=none
-gh workflow run pipeline-metrics.yml -f experiment_variant=cache-disabled -f execution_mode=parallel -f cache_mode=off -f extra_test_cases=0 -f slow_test_seconds=0 -f fail_mode=none
-gh workflow run pipeline-metrics.yml -f experiment_variant=extra-tests-120 -f execution_mode=parallel -f cache_mode=on -f extra_test_cases=120 -f slow_test_seconds=0 -f fail_mode=none
-gh workflow run pipeline-metrics.yml -f experiment_variant=forced-failure -f execution_mode=parallel -f cache_mode=on -f extra_test_cases=0 -f slow_test_seconds=0 -f fail_mode=generated-assertion
-```
+| 8 | `slow-test-5s` | `slow_test_seconds=5` | Ver se um teste lento desloca o caminho crítico. |
+| 9 | `forced-failure` | `fail_mode=generated-assertion` | Registrar falha controlada e artifacts de pipeline vermelho. |
+| 10 | `sequential-tests` | `execution_mode=sequential` | Comparar job único contra matrix paralela. |
+| 11 | `parallel-tests` | `execution_mode=parallel` | Repetir paralelismo logo após o sequential. |
+| 12 | `cache-bust` | `cache_mode=bust` | Medir chave nova de cache sem desligar a etapa. |
 
 <a id="coleta"></a>
 ## Coleta de métricas
 
-O coletor usa a API REST do GitHub com autenticação por token. Ele pagina workflow runs e jobs, respeita rate limit, baixa artifacts do run, lê JUnit/JSON e grava duas bases:
+O coletor usa a API REST do GitHub com autenticação por token. Ele pagina workflow runs e jobs, trata rate limit, baixa artifacts, lê JUnit/JSON e grava duas bases:
 
 - `data/pipeline_metrics.csv`: linha por job, com `run_id`, commit, status, duração do workflow, duração do job, contagem de testes e campos extras.
 - `data/step_metrics.csv`: linha por etapa do job, com duração de steps relevantes.
 
-Comando:
+Comando usado:
 
 ```bash
-GITHUB_TOKEN=ghp_xxx python scripts/collect_metrics.py \
-  --repo SEU_USUARIO/metrics_collector \
+GITHUB_TOKEN="$(gh auth token)" python scripts/collect_metrics.py \
+  --repo thiagomes07/metrics_collector \
   --workflow pipeline-metrics.yml \
   --limit 12 \
   --out data/pipeline_metrics.csv \
@@ -86,116 +79,106 @@ GITHUB_TOKEN=ghp_xxx python scripts/collect_metrics.py \
   --artifacts-dir data/downloaded-artifacts
 ```
 
-Campos extras incluídos: `run_attempt`, `event`, `branch`, `variant`, `python_version`, `lead_time_seconds`, `artifact_count` e `html_url`. Eles reduzem ambiguidade quando um run é reexecutado, quando a branch muda ou quando a matrix mistura versões de Python.
+Campos extras coletados: `run_attempt`, `event`, `branch`, `variant`, `python_version`, `lead_time_seconds`, `artifact_count` e `html_url`. Eu incluí esses campos porque matrix, reruns e dispatch manual tornam uma linha por job ambígua se ela tiver só SHA e status.
 
 <a id="graficos"></a>
 ## Gráficos
 
-O script de visualização gera cinco PNGs:
+Os gráficos abaixo foram gerados a partir de `data/pipeline_metrics.csv` e `data/step_metrics.csv`, não dos CSVs sintéticos.
 
-- `charts/pipeline_duration_by_run.png`
-- `charts/job_duration_by_job.png`
-- `charts/success_failure_rate.png`
-- `charts/tests_vs_duration.png`
-- `charts/step_duration_by_step.png`
+![Tempo total do pipeline por execução](../charts/pipeline_duration_by_run.png)
 
-Comando:
+![Tempo médio por job](../charts/job_duration_by_job.png)
 
-```bash
-python scripts/generate_charts.py \
-  --metrics data/pipeline_metrics.csv \
-  --steps data/step_metrics.csv \
-  --out-dir charts
-```
+![Taxa de sucesso e falha](../charts/success_failure_rate.png)
 
-Para validar localmente antes das execuções reais:
+![Quantidade de testes versus duração](../charts/tests_vs_duration.png)
 
-```bash
-python scripts/generate_charts.py \
-  --metrics data/sample_pipeline_metrics.csv \
-  --steps data/sample_step_metrics.csv \
-  --out-dir charts
-```
+![Tempo médio por etapa](../charts/step_duration_by_step.png)
 
-<a id="leitura-dos-dados-de-exemplo"></a>
-## Leitura dos dados de exemplo
+<a id="base-coletada"></a>
+## Base coletada
 
-A análise abaixo usa `data/sample_pipeline_metrics.csv`. Ela é útil para revisar o método, mas não substitui os runs reais exigidos pela atividade.
+| run_id | variant | status | duration_s | tests | failures | lead_s | commit |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| [26891995918](https://github.com/thiagomes07/metrics_collector/actions/runs/26891995918) | baseline | success | 60 | 1520 | 0 | 72 | 69313d54ab22 |
+| [26892075323](https://github.com/thiagomes07/metrics_collector/actions/runs/26892075323) | repeat-baseline | success | 65 | 1520 | 0 | 156 | 69313d54ab22 |
+| [26892077297](https://github.com/thiagomes07/metrics_collector/actions/runs/26892077297) | cache-disabled | success | 58 | 1520 | 0 | 151 | 69313d54ab22 |
+| [26892079652](https://github.com/thiagomes07/metrics_collector/actions/runs/26892079652) | cache-restored | success | 55 | 1520 | 0 | 151 | 69313d54ab22 |
+| [26892082085](https://github.com/thiagomes07/metrics_collector/actions/runs/26892082085) | extra-tests-40 | success | 58 | 1598 | 0 | 156 | 69313d54ab22 |
+| [26892084217](https://github.com/thiagomes07/metrics_collector/actions/runs/26892084217) | extra-tests-120 | success | 64 | 1758 | 0 | 164 | 69313d54ab22 |
+| [26892086661](https://github.com/thiagomes07/metrics_collector/actions/runs/26892086661) | slow-test-2s | success | 57 | 1520 | 0 | 159 | 69313d54ab22 |
+| [26892088940](https://github.com/thiagomes07/metrics_collector/actions/runs/26892088940) | slow-test-5s | success | 61 | 1520 | 0 | 166 | 69313d54ab22 |
+| [26892091428](https://github.com/thiagomes07/metrics_collector/actions/runs/26892091428) | forced-failure | failure | 58 | 1522 | 2 | 165 | 69313d54ab22 |
+| [26892093997](https://github.com/thiagomes07/metrics_collector/actions/runs/26892093997) | sequential-tests | success | 57 | 760 | 0 | 166 | 69313d54ab22 |
+| [26892096157](https://github.com/thiagomes07/metrics_collector/actions/runs/26892096157) | parallel-tests | success | 55 | 1520 | 0 | 167 | 69313d54ab22 |
+| [26892098818](https://github.com/thiagomes07/metrics_collector/actions/runs/26892098818) | cache-bust | success | 59 | 1520 | 0 | 173 | 69313d54ab22 |
 
-| Métrica | Valor no exemplo |
-|---|---:|
-| Execuções | 12 |
-| Sucessos | 11 |
-| Falhas | 1 |
-| Menor duração | 72 s (`forced-failure`) |
-| Maior duração | 146 s (`sequential-tests`) |
-| Baseline médio | 86 s |
-| Cache desligado | 122 s |
-| Cache restaurado | 80 s |
-| Paralelo após sequential | 91 s |
+Resumo: 12 execuções, 11 sucessos, 1 falha controlada, menor duração de 55 s (`cache-restored` e `parallel-tests`) e maior duração de 65 s (`repeat-baseline`). O baseline médio, usando `baseline` e `repeat-baseline`, ficou em 62,5 s.
 
 <a id="perguntas-de-analise"></a>
 ## Perguntas de análise
 
 **Qual etapa mais contribuiu para o tempo total do pipeline?**  
-Nos dados de exemplo, `Run pytest` domina o tempo de job. A média do step de pytest nos 12 runs representativos ficou acima de 60 s, enquanto `Lint source and tests` ficou estável em 4 s. No nível de job, os jobs `tests (3.11)` e `tests (3.12)` são consistentemente maiores que `quality gate`.
+O step mais caro em média foi `Install dependencies`, com 7,34 s em `data/step_metrics.csv`. `Run pytest` ficou em 3,00 s de média e `Run pytest sequentially` em 2,00 s. No nível de job, `tests (3.12)` teve média de 18,09 s, `tests (3.11)` teve 17,55 s e `quality gate` teve 16,58 s. Minha expectativa era que pytest dominasse, mas neste projeto a instalação e o overhead de job pesaram mais que a suíte.
 
 **Houve diferença significativa entre execuções com e sem cache?**  
-Sim no exemplo. `cache-disabled` levou 122 s, contra 80 s em `cache-restored` e média de 86 s nos dois baselines. A diferença prática foi de 36 s a 42 s, concentrada no step `Install dependencies`.
+Não. `cache-disabled` levou 58 s, enquanto `cache-restored` levou 55 s e `cache-bust` levou 59 s. A diferença ficou dentro do ruído observado entre `baseline` e `repeat-baseline`, que variaram de 60 s para 65 s sem mudança de configuração. Para este projeto pequeno, cache de `pip` não foi o gargalo principal.
 
 **O paralelismo reduziu o tempo total? Em que condições?**  
-Reduziu quando havia dois jobs de teste independentes. `sequential-tests` levou 146 s; `parallel-tests`, executado logo depois, levou 91 s. A redução foi de 55 s, cerca de 38%. O ganho depende do teste caber bem em jobs independentes e do runner não sofrer fila longa.
+Quase nada neste recorte. `parallel-tests` levou 55 s e `sequential-tests` levou 57 s, diferença de 2 s. Além disso, a comparação não é perfeitamente justa: o job sequencial executou uma versão de Python e somou 760 testes, enquanto a matrix paralela executou 3.11 e 3.12 e somou 1520 testes. O dado útil aqui é menos "paralelismo ganhou" e mais "o custo fixo do runner escondeu o custo real dos testes".
 
 **Quais falhas foram mais frequentes?**  
-O exemplo tem uma única falha planejada: `forced-failure`, causada por `fail_mode=generated-assertion`. Como a matrix roda em Python 3.11 e 3.12, o mesmo defeito aparece em dois jobs, mas representa uma falha lógica única.
+Houve uma falha planejada: `forced-failure`, run `26892091428`. Ela gerou 2 falhas porque a mesma asserção quebrada rodou nas duas versões da matrix. Não apareceu falha de lint, instalação, artifact ou cache.
 
 **O pipeline fornece feedback rápido o suficiente para o desenvolvedor?**  
-Na baseline, sim: 84 s a 88 s é aceitável para pull request pequeno. A resposta muda nas variações: sem cache, com 120 testes extras, com teste lento de 5 s e em modo sequencial, o feedback passa de 2 min. Para uma equipe que faz commits pequenos, eu trataria 90 s como alvo e 120 s como limite de investigação.
+Sim para este projeto. O pior run medido levou 65 s e a maioria ficou entre 55 s e 61 s. Para uma biblioteca pequena, eu consideraria esse feedback bom. O ponto fraco é que o tempo total tem parcela grande de setup, então duplicar a suíte não necessariamente dobra a duração, mas também limita o benefício de otimizar apenas testes.
 
 **Que melhorias poderiam ser feitas no pipeline?**  
-Eu manteria cache obrigatório para `pip`, separaria testes lentos por marcador, adicionaria limite de duração por teste com `pytest-timeout`, preservaria o JUnit por job e passaria a publicar um resumo Markdown no job final. Para custo, eu evitaria matrix completa em todo push se a mudança tocar apenas documentação.
+Eu separaria testes rápidos e lentos por marcador, publicaria o resumo no `$GITHUB_STEP_SUMMARY`, corrigiria o modo sequencial para executar 3.11 e 3.12 no mesmo job quando a comparação for o foco, e passaria a registrar cache hit diretamente no CSV. Também fixaria versões principais de ações que já emitiram aviso de Node 20 durante os runs.
 
 **Quais limitações existem nos dados coletados?**  
-A duração do workflow mistura execução com overhead do GitHub Actions. O Jobs API não expõe diretamente o output `cache-hit`, então o pipeline grava esse valor em artifact e o coletor tenta recuperá-lo dali. Artifacts expiram, então a coleta tardia pode perder JUnit. A contagem de testes soma a matrix; quando o mesmo teste roda em duas versões de Python, ele aparece duas vezes por desenho experimental.
+Todas as execuções foram `workflow_dispatch` no mesmo commit, então `lead_time_seconds` mede distância entre commit e fim do run manual, não lead time real de desenvolvimento. A contagem de testes soma a matrix; por isso 1520 testes significam a suíte rodada em duas versões, não 1520 casos únicos. O modo `sequential-tests` executou só Python 3.12, o que limita a comparação contra `parallel-tests`. Artifacts também expiram, então a coleta precisa acontecer perto dos runs.
 
 **Como essa análise poderia apoiar decisões de engenharia?**  
-Ela separa custo fixo de setup, custo variável da suíte e custo de paralelismo. Com isso dá para justificar cache, decidir se vale dividir testes por marcador, definir alvo de tempo para PR e priorizar otimização de testes lentos com impacto real em feedback.
+Ela mostra que, para este projeto, o caminho mais prático não é começar otimizando testes individuais. O ganho provável está em reduzir setup, ajustar escopo da matrix por tipo de mudança e melhorar observabilidade do próprio pipeline. Também evita uma decisão automática de "cache resolve": nesse experimento, cache não moveu o ponteiro de forma convincente.
 
 <a id="resultados-inesperados"></a>
 ## Resultados inesperados
 
-O primeiro resultado contraintuitivo no exemplo é `forced-failure` ser o run mais curto, com 72 s. Eu esperaria uma falha planejada custar quase o mesmo que baseline, já que o pytest não foi configurado com `-x`. A explicação provável é combinação de cache quente, menor variação de instalação e encerramento mais barato no pós-processamento. Em dados reais, eu conferiria os steps para validar se a economia veio de execução de teste ou de setup.
+O primeiro resultado inesperado foi `cache-disabled` não piorar o pipeline. Ele levou 58 s, abaixo do baseline repetido de 65 s e só 3 s acima de `cache-restored`. Isso contraria a hipótese de que dependências dominariam. A explicação provável é que o ambiente hospedado já entrega rede e disco rápidos o suficiente para este conjunto pequeno de dependências, enquanto fila, inicialização de job e variação de runner adicionam ruído parecido.
 
-O segundo resultado estranho é `slow-test-5s` custar 134 s. A diferença contra `slow-test-2s` foi de 33 s, maior que os 6 s esperados para duas versões de Python. Isso sugere que o atraso artificial não foi o único fator; o runner pode ter ficado mais lento, a instalação pode ter variado, ou o teste lento pode ter deslocado o caminho crítico da matrix.
+O segundo resultado inesperado foi o pouco impacto dos testes lentos artificiais. `slow-test-2s` fechou em 57 s e `slow-test-5s` em 61 s. Eu esperava diferença mais visível por causa da matrix, mas o atraso foi absorvido pelo caminho crítico de setup e pela execução paralela dos jobs. O teste lento apareceu mais claramente no tempo de pytest do que no tempo total do workflow.
+
+O terceiro ponto, menos elegante mas importante, foi a comparação sequential versus parallel. Eu esperava uma vitória clara do paralelismo. O resultado bruto foi 57 s contra 55 s, mas o sequential rodou metade da matriz. A conclusão honesta é que o desenho dessa variação mede overhead e não uma equivalência perfeita de carga.
 
 <a id="hipotese-vs-resultado"></a>
 ## Hipótese inicial vs resultado observado
 
-Minha hipótese inicial era que o cache dominaria o tempo total e que aumentar a quantidade de testes teria efeito quase linear. O cache confirmou a hipótese no exemplo: desligar cache adicionou mais de 40 s contra `cache-restored`. A parte dos testes foi menos limpa. `extra-tests-40` subiu para 96 s, mas `extra-tests-120` foi a 128 s; o aumento existe, só que a inclinação não é puramente proporcional porque instalação, scheduler e pós-processamento ainda pesam no caminho crítico.
+Hipótese inicial: cache reduziria claramente a duração, paralelismo reduziria bastante o tempo total e aumento de testes teria efeito quase linear.
 
-Sobre paralelismo, a hipótese era redução clara. Ela se confirmou na comparação `sequential-tests` contra `parallel-tests`, mas com uma ressalva: o ganho medido inclui diferença estrutural do job sequencial e ruído temporal. Para fechar a conclusão em dados reais, eu repetiria a dupla sequential/parallel duas vezes.
+Resultado observado: nenhuma das três hipóteses apareceu limpa. Cache ficou dentro do ruído. Paralelismo teve diferença pequena e comparação limitada. O aumento de testes foi visível só no extremo: `extra-tests-40` ficou em 58 s, mas `extra-tests-120` foi para 64 s e se aproximou do pior run. A parte positiva é que o pipeline ficou rápido mesmo com variações, mas o experimento mostrou que otimizar CI/CD exige separar custo fixo de custo de teste antes de mexer na configuração.
 
 <a id="evidencias-reais"></a>
-## Evidências reais exigidas para entrega
+## Evidências reais
 
-Este arquivo ainda não contém prints nem links reais de GitHub Actions. Depois de executar no seu repositório, preencha esta seção com:
+- Repositório: [thiagomes07/metrics_collector](https://github.com/thiagomes07/metrics_collector)
+- Workflow YAML: [pipeline-metrics.yml](https://github.com/thiagomes07/metrics_collector/blob/main/.github/workflows/pipeline-metrics.yml)
+- Commit usado nos 12 runs: [`69313d54ab2201cfb8a90284fd54c4f3605d4408`](https://github.com/thiagomes07/metrics_collector/commit/69313d54ab2201cfb8a90284fd54c4f3605d4408)
+- Runs reais: `26891995918`, `26892075323`, `26892077297`, `26892079652`, `26892082085`, `26892084217`, `26892086661`, `26892088940`, `26892091428`, `26892093997`, `26892096157`, `26892098818`.
+- CSV real: `data/pipeline_metrics.csv`
+- Steps reais: `data/step_metrics.csv`
+- Gráficos reais: `charts/*.png`
 
-- Link do repositório próprio.
-- Link direto para `.github/workflows/pipeline-metrics.yml`.
-- 12 links reais de workflow runs.
-- IDs reais de `run_id` produzidos por `collect_metrics.py`.
-- SHAs reais dos commits ou dos dispatches usados.
-- Quatro gráficos gerados a partir de `data/pipeline_metrics.csv`, não do CSV sintético.
-
-Eu prefiro deixar essa ausência explícita a fabricar evidência. A atividade pede execução real, e o próprio valor do experimento depende de ruído, fila, cache e falhas reais do GitHub Actions.
+Links individuais dos runs estão na tabela da seção `Base coletada`.
 
 <a id="reproducao"></a>
 ## Reprodução
 
-1. Crie um repositório próprio no GitHub e envie este projeto.
-2. Ative GitHub Actions.
-3. Dispare as 12 variações listadas em `Variações planejadas`.
-4. Crie um token com permissão de leitura de Actions.
-5. Rode `scripts/collect_metrics.py` apontando para o seu `owner/repo`.
-6. Rode `scripts/generate_charts.py` usando o CSV real.
-7. Substitua a seção `Evidências reais exigidas para entrega` pelos links, IDs e prints verdadeiros.
+1. Clone o repositório `thiagomes07/metrics_collector`.
+2. Instale dependências do projeto: `python -m pip install -e ".[tests]"`.
+3. Instale dependências de análise: `python -m pip install -r requirements-experiment.txt`.
+4. Dispare as 12 variações por `workflow_dispatch` usando os parâmetros da seção `Variações executadas`.
+5. Colete os dados com `scripts/collect_metrics.py`.
+6. Gere os gráficos com `scripts/generate_charts.py`.
+7. Confira `reports/pipeline-analysis.md` junto dos CSVs e links reais de Actions.
